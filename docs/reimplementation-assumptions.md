@@ -21,6 +21,10 @@ Per docs/00_critique_and_plan.md's risk register: the paper's §IV generator des
 - **"Bilinear form of random rank"**: implemented as `f(s, a) = phi_s(s)^T @ M @ phi_a(a)`, where `phi_s`, `phi_a` are RFF embeddings of the state and the action's feature vector respectively, and `M` is a random low-rank matrix (`rank` sampled per-task within a chosen range, since the paper doesn't give one) — this is the standard meaning of "bilinear form of random rank" and is a direct, low-assumption reading of the paper's text, not a free design choice beyond picking the rank's sampling range.
 - **Action feature perturbation noise scale**: paper says the chosen action's features are "perturbed by Gaussian noise so they do not identify the chosen action" but doesn't give a noise scale; chosen as a fraction of the action feature vectors' own empirical std within the task.
 
+## Pretraining loop (`pretrain.py`)
+
+- **Generator sampled per batch, not per task**: the paper draws a generator `g ~ Uniform(G)` independently for *every task* (Section IV). For vectorization/speed we draw one generator for an entire batch of tasks instead (still uniform over the three generators, still re-drawn every training step), since each of our generators' `get_batch` already independently re-samples a fresh system per task within the batch. Over many training steps this converges to the same per-generator exposure rate; it only changes the *granularity* of mixing, not the mixture itself. Flagged here since it's a real simplification, not a hidden one.
+
 ## LDS (`generators/lds.py`)
 
 - **Decay-rate distribution ("near one")**: not quantified. Chosen as `Uniform(0.9, 0.999)` per diagonal entry of `A`, independently per state dimension — high enough to guarantee strong autocorrelation (the property the paper explicitly attributes to this generator) while avoiding instability (`>1`) or triviality (`<<1`, which would wash out autocorrelation and defeat the generator's purpose).

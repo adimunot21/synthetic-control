@@ -86,6 +86,19 @@ def pad_and_permute_features(x: np.ndarray, num_features: int, rng: np.random.Ge
     return x[:, permutation]
 
 
+def quantile_bin(y_continuous: np.ndarray, n_bins: int) -> np.ndarray:
+    """Discretize a continuous target into n_bins classes via empirical
+    quantiles *within this sample* -- the paper's own approach for turning
+    the generic tabular prior's regression target into K discrete action
+    classes (Section IV-A: "modify the generator to use quantile binning
+    with K=64 classes"). Ties are broken by argsort order, which is fine
+    here since inputs are continuous GP draws (ties have probability ~0).
+    """
+    ranks = np.argsort(np.argsort(y_continuous))
+    bins = (ranks * n_bins) // len(y_continuous)
+    return np.clip(bins, 0, n_bins - 1).astype(np.int64)
+
+
 def z_score(x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
     mean = x.mean(axis=0, keepdims=True)
     std = x.std(axis=0, keepdims=True)

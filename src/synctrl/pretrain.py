@@ -80,7 +80,18 @@ def sample_batch(
     return x, y, name
 
 
-def train(config: dict = CONFIG, checkpoint_dir: str | Path = "checkpoints") -> dict:
+def train(
+    config: dict = CONFIG,
+    checkpoint_dir: str | Path = "checkpoints",
+    resume_from: str | Path | None = None,
+) -> dict:
+    """If `resume_from` is given, loads that checkpoint's model/optimizer
+    state and continues step counting from where it left off -- config's
+    `n_steps` is then "how many *additional* steps to run," not a new
+    total, so an interrupted or deliberately-staged run can be extended
+    without re-training from scratch or losing step-number continuity in
+    checkpoint filenames/history.
+    """
     torch.manual_seed(config["seed"])
     rng = np.random.default_rng(config["seed"])
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -99,8 +110,21 @@ def train(config: dict = CONFIG, checkpoint_dir: str | Path = "checkpoints") -> 
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     history = []
+    start_step = 0
+    if resume_from is not None:
+        payload = torch.load(resume_from, map_location=device, weights_only=False)
+        model.load_state_dict(payload["model_state_dict"])
+        optimizer.load_state_dict(payload["optimizer_state_dict"])
+        start_step = payload["step"]
+        history_path = checkpoint_dir / "history.json"
+        if history_path.exists():
+            with open(history_path) as f:
+                history = json.load(f)
+        print(f"Resumed from {resume_from} at step {start_step}; running {config['n_steps']} more steps.")
+
+    end_step = start_step + config["n_steps"]
     start_time = time.time()
-    for step in range(1, config["n_steps"] + 1):
+    for step in range(start_step + 1, end_step + 1):
         x, y, generator_name = sample_batch(config, rng)
         x, y = x.to(device), y.to(device)
 
@@ -112,7 +136,7 @@ def train(config: dict = CONFIG, checkpoint_dir: str | Path = "checkpoints") -> 
         loss.backward()
         optimizer.step()
 
-        if step % config["log_every"] == 0 or step == 1:
+        if step % config["log_every"] == 0 or step == start_step + 1:
             elapsed = time.time() - start_time
             accuracy = (logits.argmax(dim=-1) == targets.long()).float().mean().item()
             record = {
@@ -124,11 +148,11 @@ def train(config: dict = CONFIG, checkpoint_dir: str | Path = "checkpoints") -> 
             }
             history.append(record)
             print(
-                f"step {step:5d}/{config['n_steps']} | loss {loss.item():.4f} | "
+                f"step {step:5d}/{end_step} | loss {loss.item():.4f} | "
                 f"train_acc {accuracy:.3f} | generator {generator_name:7s} | elapsed {elapsed:6.1f}s"
             )
 
-        if step % config["checkpoint_every"] == 0 or step == config["n_steps"]:
+        if step % config["checkpoint_every"] == 0 or step == end_step:
             _save_checkpoint(checkpoint_dir / f"step_{step}.pt", model, optimizer, config, step)
 
     with open(checkpoint_dir / "history.json", "w") as f:

@@ -42,3 +42,19 @@ def test_train_runs_and_checkpoints(tmp_path):
     checkpoint_files = list(tmp_path.glob("step_*.pt"))
     assert len(checkpoint_files) == 1  # checkpoint_every == n_steps here
     assert (tmp_path / "history.json").exists()
+
+
+def test_resume_continues_step_count_and_appends_history(tmp_path):
+    train(config=TINY_CONFIG, checkpoint_dir=tmp_path)
+    first_checkpoint = tmp_path / f"step_{TINY_CONFIG['n_steps']}.pt"
+    assert first_checkpoint.exists()
+
+    resume_config = {**TINY_CONFIG, "n_steps": 2, "checkpoint_every": 2}
+    result = train(config=resume_config, checkpoint_dir=tmp_path, resume_from=first_checkpoint)
+
+    # Step numbering continues from where the first run left off, not from 0.
+    expected_final_step = TINY_CONFIG["n_steps"] + resume_config["n_steps"]
+    assert (tmp_path / f"step_{expected_final_step}.pt").exists()
+    assert result["history"][-1]["step"] == expected_final_step
+    # History accumulates across both runs rather than being overwritten.
+    assert len(result["history"]) == TINY_CONFIG["n_steps"] + resume_config["n_steps"]

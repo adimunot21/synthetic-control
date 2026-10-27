@@ -7,6 +7,8 @@ data/
 .env
 *.log
 
+.claude/
+
 # generic python noise
 *.egg-info/
 .pytest_cache/

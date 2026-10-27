@@ -46,8 +46,13 @@ CONFIG = {
     "max_actions": 10,
     "seq_len": 200,  # matches the 100-context/100-query split used for the baseline suite
     "single_eval_pos": 100,
-    "batch_size": 32,
-    "n_steps": 2000,  # smoke-scale budget; see module docstring
+    # Measured on this laptop (CPU generator sampling, not the model, is the
+    # bottleneck: the per-task rollout loops in mdp.py/lds.py are pure
+    # Python): batch_size=32 costs ~2.5s/step regardless of generator.
+    # batch_size=16 + n_steps=800 keeps this run to roughly 15-20 minutes --
+    # a genuine smoke-scale budget, not the paper's ~30h/model.
+    "batch_size": 16,
+    "n_steps": 800,  # smoke-scale budget; see module docstring
     "lr": 1e-4,
     "log_every": 50,
     "checkpoint_every": 500,

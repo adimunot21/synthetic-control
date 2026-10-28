@@ -10,18 +10,30 @@ literal "local smoothing" baseline) and the rest of the baseline suite.
 This is a *falsifiable* dose-response test: if the model's zero-shot
 accuracy rises and falls in lockstep with kNN's as autocorrelation varies,
 that's direct evidence its behavior is well explained by local smoothing,
-not learned long-horizon control structure -- especially telling at LOW
-autocorrelation, where smoothing has nothing to exploit and a model that's
-actually using something else should separate from kNN.
+not learned long-horizon control structure.
+
+Important limitation, found while looking at the actual numbers rather than
+assumed up front: decay_rate=0 is NOT a clean "no exploitable structure"
+control. At decay_rate=0, x_{t+1} = b_action + noise (the state has zero
+memory of its own past), but this still leaves a strong *static*
+state-action association -- each action's fixed displacement b_a gives it
+a characteristic state "signature" that kNN, logistic regression, or the
+model can all exploit without needing any temporal memory at all (this is
+structurally closer to the Bandit generator than to "no structure"). So
+this sweep varies autocorrelation *given that a static association is
+always present*, not autocorrelation against a true null -- see the
+analysis after the sweep for what that does and doesn't let us conclude.
 """
 
 from __future__ import annotations
+
+import json
 
 import numpy as np
 import torch
 
 from synctrl.baselines import ALL_BASELINES
-from synctrl.eval.harness import aggregate, as_predict_fn, evaluate_on_tasks, save_results
+from synctrl.eval.harness import aggregate, as_predict_fn, evaluate_on_tasks
 from synctrl.generators import lds
 from synctrl.model import ControlPriorModel, build_model
 from synctrl.tasks import task_from_arrays
@@ -95,7 +107,8 @@ def main() -> None:
         str(decay_rate): {name: {"accuracy": agg.accuracy.mean, "nll": agg.nll.mean} for name, agg in row.items()}
         for decay_rate, row in results.items()
     }
-    save_results({"rq2_dose_response": jsonable}, "results/rq2_autocorrelation_dose_response.json")
+    with open("results/rq2_autocorrelation_dose_response.json", "w") as f:
+        json.dump({"rq2_dose_response": jsonable}, f, indent=2)
 
     print("\n--- Does the model's dose-response curve track kNN's? ---")
     model_accs = np.array([results[d]["control_prior_model"].accuracy.mean for d in DECAY_RATE_SWEEP])
@@ -105,7 +118,10 @@ def main() -> None:
     print(f"knn   accuracy across decay rates: {np.round(knn_accs, 3)}")
     print(f"Pearson correlation between model's and kNN's dose-response curves: {correlation:.3f}")
     low_autocorr_gap = model_accs[0] - knn_accs[0]
-    print(f"model - kNN at decay_rate=0.0 (no autocorrelation to exploit): {low_autocorr_gap:+.3f}")
+    print(
+        f"model - kNN at decay_rate=0.0 (zero temporal memory, but still a static state-action "
+        f"association from each action's fixed displacement -- see module docstring): {low_autocorr_gap:+.3f}"
+    )
 
 
 if __name__ == "__main__":

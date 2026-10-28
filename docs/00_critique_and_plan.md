@@ -2,7 +2,7 @@
 
 Source: arXiv 2610.31275v1 (Odrowaz-Sypniewski, Amir, Bayrooti, Shankar, Prorok; Cambridge; 22 Oct 2026; not peer reviewed). Full text read directly from the HTML version (https://arxiv.org/html/2610.31275v1), not from a summary. Every factual claim below is tagged **[verified]** (read directly from the paper), **[estimated]** (my inference, not stated), or **[unknown]** (not in the paper, not yet checked).
 
-Status: **decision point — do not start Phase 0 until this doc is reviewed.** Nothing has been installed or coded beyond throwaway verification checks described in §4.
+Status: **Phases 0-2 complete.** See §7 (end of document) for the results summary.
 
 ---
 
@@ -133,3 +133,32 @@ RQ1 (baselines) is moved to be the very first empirical work, before any of our 
 1. **RQ7 (closed-loop control) stays last**, as an explicitly-labeled stretch phase, not pulled earlier.
 2. **Phase 0 starts minimal**: pendulum, cartpole, Dubins car only. Planar arms / quadrotor-like / MuJoCo-Gymnasium-VMAS deferred to Phase 3, gated on Phase 1's baseline result.
 3. **Experiment tracking: plain JSON/CSV + matplotlib**, no external dashboard service. Fully reproducible from the repo alone.
+
+---
+
+## 7. Results summary (Phases 0-2)
+
+### RQ1 — does control-prior pretraining beat strong simple baselines, given identical context?
+
+A from-scratch TabPFN-style model (64-dim, 4-layer, far smaller than the paper's 256-dim/12-layer) was pretrained on our reimplementation of the MDP+Bandit+LDS generator mixture for 16,800 steps (~4.3h total, laptop-only, ~270,000 total task exposures — still ~3 orders of magnitude below the paper's 15M-dataset/~30h budget) and compared against a five-baseline suite (majority, kNN, logistic regression, GBT, small MLP) on held-out pendulum/cartpole/Dubins-car tasks.
+
+- At 800 steps the model lost to every baseline by large margins (−0.13 to −0.28 accuracy) — this turned out to be pure undertraining, not a real result.
+- By 8,800 steps the gap had closed dramatically: tied with the best baseline on 2 of 6 system/split combinations, modestly behind on the other 4 (−0.01 to −0.07).
+- By 16,800 steps the gap had **plateaued** — essentially no further change from 8,800, matching a plateau already visible in raw training accuracy (LDS/Bandit batches saturated at 0.85–0.95; MDP batches stuck at 0.24–0.52 throughout).
+
+**Answer at this scale: no — the model approaches but does not exceed strong simple baselines, and the remaining gap looks like a genuine ceiling for this architecture (likely MDP-task capacity, not more steps), not more undertraining.** Whether a substantially larger model changes this is open and would require the cloud-scale run the plan gates behind an explicit cost/time estimate.
+
+### RQ2 — is the effect explained by temporal autocorrelation specifically?
+
+Swept the LDS generator's decay rate (0.0 → 0.99, everything else fixed) and compared the model's accuracy curve against kNN's. **Pearson correlation between the two curves: 0.991** — they move together almost exactly across the whole range, including at decay_rate=0 (though that point turned out not to be a clean "no structure" control — it still has a strong *static* state-action association from each action's fixed displacement; noted as a limitation in the script rather than overclaimed). Logistic regression and a small MLP beat both the model and kNN by a small, consistent margin throughout.
+
+### RQ3 — what is the model actually doing?
+
+- **kNN-agreement**: the model's predictions match kNN's far more often (0.76–0.90) than their individual accuracies would predict under independence (0.43–0.65 expected) — including matching kNN's *mistakes* on the hard Dubins case. Not just similarly accurate; making the same calls.
+- **Context-size scaling**: the model holds a sample-efficiency edge over kNN specifically at small context sizes (e.g. pendulum, context=10: model 0.722 vs kNN 0.578), which narrows as context grows and the two converge — consistent with a learned prior that matters most when little in-context data is available.
+- **Contiguous-vs-random split gap**: negligible for the model on pendulum/cartpole (smaller than the best baseline's on cartpole), but just as large as the best baseline's on Dubins (+0.273 vs +0.292) — no special robustness on the genuinely hard non-stationary-extrapolation case.
+- **Label-permutation consistency**: gaps ~0 with CIs crossing zero on all three systems — despite TabPFN's y_encoder embedding labels via their literal numeric value (a real risk of spurious label-order dependence), the model is behaviorally invariant to which integer denotes which action. Genuine in-context label reading, not a memorized global mapping.
+
+### Synthesis
+
+The evidence across RQ1-RQ3 is coherent and points the same way: **this model's behavior is well explained by a learned, Bayesian-smoothed version of local (kNN-like) structure, not by learned long-horizon control reasoning.** It tracks kNN's dose-response curve almost exactly, agrees with kNN far more than chance (including on its mistakes), gets no special benefit from temporal structure beyond what a static state-action association already provides, and shows no particular robustness advantage on the one system (Dubins) that actually requires extrapolation rather than interpolation. The one genuinely positive, non-trivial finding is the small-context sample-efficiency edge over raw kNN — a real benefit of pretraining, just a quantitatively modest and mechanistically narrow one (a better prior at low data, not better control reasoning at any data level). This is consistent with — not a refutation of — the paper's own internal evidence (LDS dominance, MDP weakness) that motivated this investigation in the first place.

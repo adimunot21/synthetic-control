@@ -4,7 +4,7 @@ import pytest
 from synctrl.sims.cartpole import CartPole
 from synctrl.sims.dubins import DubinsCar
 from synctrl.sims.pendulum import Pendulum
-from synctrl.tasks import rollout_to_task, sample_tasks
+from synctrl.tasks import rollout_to_task, sample_tasks, task_from_arrays
 
 SYSTEMS = [Pendulum(), CartPole(), DubinsCar()]
 SYSTEM_IDS = ["pendulum", "cartpole", "dubins"]
@@ -62,6 +62,33 @@ def test_random_split_actually_shuffles():
 
     contiguous_context = rollout.states[:-1][:50]
     assert not np.array_equal(task.context_x, contiguous_context)
+
+
+def test_task_from_arrays_matches_rollout_to_task():
+    """rollout_to_task should now just be task_from_arrays applied to
+    rollout.states[:-1]/rollout.actions -- confirm the refactor didn't
+    change behavior.
+    """
+    system = Pendulum()
+    rollout = system.rollout(n_steps=40, rng=np.random.default_rng(10), noise_eps=0.1)
+
+    task_a = rollout_to_task(system, rollout, split="contiguous", rng=np.random.default_rng(0), context_frac=0.5)
+    task_b = task_from_arrays(
+        rollout.states[:-1], rollout.actions, system.action_space_size,
+        split="contiguous", rng=np.random.default_rng(0), context_frac=0.5, system_params=rollout.params,
+    )
+
+    np.testing.assert_array_equal(task_a.context_x, task_b.context_x)
+    np.testing.assert_array_equal(task_a.query_y, task_b.query_y)
+    assert task_a.system_params == task_b.system_params
+
+
+def test_task_from_arrays_without_system_params_defaults_to_empty_dict():
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(20, 3))
+    y = rng.integers(0, 4, size=20)
+    task = task_from_arrays(x, y, action_space_size=4, split="contiguous", rng=rng)
+    assert task.system_params == {}
 
 
 @pytest.mark.parametrize("system", SYSTEMS, ids=SYSTEM_IDS)

@@ -40,23 +40,26 @@ class Task:
     system_params: dict  # the sampled physical parameters for this task's rollout
 
 
-def rollout_to_task(
-    system: KnownExpertSystem,
-    rollout: Rollout,
+def task_from_arrays(
+    x_all: np.ndarray,
+    y_all: np.ndarray,
+    action_space_size: int,
     split: str,
     rng: np.random.Generator,
     context_frac: float = 0.5,
+    system_params: dict | None = None,
 ) -> Task:
+    """Build a Task from any (x, y) sequence, not just a simulator rollout --
+    e.g. one synthetic generator's sampled task, used directly in
+    scripts/rq2_autocorrelation_dose_response.py where we need precise
+    control over the generating process's ground-truth parameters, which
+    only the generator itself (not a KnownExpertSystem) provides.
+    """
     if split not in ("contiguous", "random"):
         raise ValueError(f"split must be 'contiguous' or 'random', got {split!r}")
 
-    n_steps = len(rollout.actions)
+    n_steps = len(y_all)
     n_context = int(round(n_steps * context_frac))
-
-    # states[:-1] is the state *before* each action -- states[t] paired with
-    # actions[t], consistent with how the known-expert sims generate data.
-    x_all = rollout.states[:-1]
-    y_all = rollout.actions
 
     if split == "contiguous":
         order = np.arange(n_steps)
@@ -71,8 +74,28 @@ def rollout_to_task(
         context_y=y_all[context_idx],
         query_x=x_all[query_idx],
         query_y=y_all[query_idx],
+        action_space_size=action_space_size,
+        split=split,
+        system_params=system_params or {},
+    )
+
+
+def rollout_to_task(
+    system: KnownExpertSystem,
+    rollout: Rollout,
+    split: str,
+    rng: np.random.Generator,
+    context_frac: float = 0.5,
+) -> Task:
+    # states[:-1] is the state *before* each action -- states[t] paired with
+    # actions[t], consistent with how the known-expert sims generate data.
+    return task_from_arrays(
+        x_all=rollout.states[:-1],
+        y_all=rollout.actions,
         action_space_size=system.action_space_size,
         split=split,
+        rng=rng,
+        context_frac=context_frac,
         system_params=rollout.params,
     )
 

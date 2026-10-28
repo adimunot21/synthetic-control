@@ -83,6 +83,20 @@ def test_task_from_arrays_matches_rollout_to_task():
     assert task_a.system_params == task_b.system_params
 
 
+def test_task_from_arrays_casts_float_labels_to_int64():
+    """Generator get_batch output (TabPFN convention) is float32 throughout,
+    including labels -- task_from_arrays must normalize this, or downstream
+    consumers like np.bincount (majority baseline) break (a real bug caught
+    while building the RQ2 autocorrelation experiment).
+    """
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(20, 3)).astype(np.float32)
+    y = rng.integers(0, 4, size=20).astype(np.float32)  # float labels, as get_batch produces
+    task = task_from_arrays(x, y, action_space_size=4, split="contiguous", rng=rng)
+    assert task.context_y.dtype == np.int64
+    assert task.query_y.dtype == np.int64
+
+
 def test_task_from_arrays_without_system_params_defaults_to_empty_dict():
     rng = np.random.default_rng(0)
     x = rng.normal(size=(20, 3))

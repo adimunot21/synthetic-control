@@ -58,6 +58,13 @@ def task_from_arrays(
     if split not in ("contiguous", "random"):
         raise ValueError(f"split must be 'contiguous' or 'random', got {split!r}")
 
+    # Generators following the TabPFN get_batch convention return float32
+    # labels throughout (see generators/base.py); baselines and metrics
+    # require integer class indices (np.bincount, sklearn's class handling).
+    # Casting once here means every caller gets a canonical dtype for free,
+    # rather than each call site needing to remember to do it.
+    y_all = np.asarray(y_all).astype(np.int64)
+
     n_steps = len(y_all)
     n_context = int(round(n_steps * context_frac))
 

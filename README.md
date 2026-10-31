@@ -1,59 +1,50 @@
 # synthetic-control
 
-Independent, simulation-only investigation of arXiv [2610.31275](https://arxiv.org/abs/2610.31275), "Learning Robot Behavior Priors from Non-Robotic Synthetic Data" (Odrowaz-Sypniewski, Amir, Bayrooti, Shankar, Prorok; Cambridge; 22 Oct 2026 preprint, not peer reviewed).
+A simulation-only replication study of arXiv [2610.31275](https://arxiv.org/abs/2610.31275), "Learning Robot Behavior Priors from Non-Robotic Synthetic Data" (Odrowaz-Sypniewski, Amir, Bayrooti, Shankar, Prorok; October 2026 preprint, not peer reviewed).
 
-Status: **Phases 0-2 complete.** Full report below the headline finding.
+The paper pretrains a transformer on procedurally generated data (random MDPs, bandits and linear dynamical systems) and reports that it predicts robot actions on real datasets better than chance. The paper does not compare against simple baselines. This repo reimplements the generators, builds a five-baseline suite (majority class, kNN, logistic regression, gradient-boosted trees, small MLP) and pretrains a model at laptop scale, about 4.3 hours of training against roughly 30 hours in the paper, to see whether the effect holds.
 
-## Headline finding
+## Findings
 
-The paper claims a transformer pretrained only on procedurally generated, non-robotic synthetic data (random MDPs, bandits, linear dynamical systems) predicts robot actions above chance on real datasets it never saw — but never tests against a single simple baseline. We reimplemented its generators, built a five-baseline suite (majority class, kNN, logistic regression, gradient-boosted trees, small MLP), and pretrained a model at laptop scale (~4.3h, ~3 orders of magnitude below the paper's own ~30h/15M-dataset budget) to test whether the effect survives.
+- At this scale the model approaches the baseline suite but does not exceed it, and the gap levels off with more training.
+- When autocorrelation in the data is varied, the model's accuracy curve follows a kNN baseline's closely (Pearson r = 0.991).
+- Three further probes agree: the model's predictions and mistakes overlap with kNN far more than chance, it shows no extra robustness on the one system that needs extrapolation, and it is invariant to relabelling the actions.
+- One positive result: a measurable sample-efficiency advantage over kNN at small context sizes, which disappears as context grows.
 
-**At this scale, it doesn't clearly survive, and the mechanism looks different from what's claimed.** The model approaches but never exceeds the baseline suite, and the gap plateaus rather than closing with more training. A direct manipulation of autocorrelation — the one property the paper's own ablation flags as most important — shows the model's accuracy curve tracking a plain kNN baseline's almost exactly (Pearson r = 0.991). Three further mechanism probes point the same direction: the model agrees with kNN far more than chance (including on shared mistakes), shows no special robustness on the one evaluation system that requires real extrapolation, and is behaviorally invariant to action-label identity (ruling out one specific failure mode, a spurious numeric-label-order dependency). The one genuine, positive finding is narrower than "it learned control": a measurable sample-efficiency edge over kNN at small context sizes that vanishes as more context becomes available.
+All results come from three simulated systems (pendulum, cartpole, Dubins car). Section 6 of `docs/report.md` lists what the study does not show.
 
-**Full report, figures, ablations, and an explicit "what this does not show" section: [docs/report.md](docs/report.md).** Model/dataset card: [docs/MODEL_CARD.md](docs/MODEL_CARD.md). Paper critique and project plan: [docs/00_critique_and_plan.md](docs/00_critique_and_plan.md).
+Status: phases 0 to 2 complete.
 
-## Scope
+## Documents
 
-All simulation. No real hardware, no real-robot datasets. Every result is scoped to the three simulated systems actually tested here (pendulum, cartpole, Dubins car) — see [docs/report.md](docs/report.md) §6 for the full "what this does not show."
+- `docs/report.md`: full write-up with figures and ablations.
+- `docs/MODEL_CARD.md`: model and dataset card.
+- `docs/00_critique_and_plan.md`: critique of the paper, related work, plan and risks.
+- `docs/data-contract-tabpfn.md`: inputs, outputs and required patches for `tabpfn==0.1.11`.
+- `docs/reimplementation-assumptions.md`: every detail filled in beyond what the paper describes.
 
 ## Setup
 
-```bash
-conda create -n synthetic-control python=3.11 -y
-conda activate synthetic-control
-pip install -r requirements.txt
-pip install -e .
-python scripts/patch_tabpfn_torch_compat.py  # required one-time compat fix, see docs/data-contract-tabpfn.md
-```
+    conda create -n synthetic-control python=3.11 -y
+    conda activate synthetic-control
+    pip install -r requirements.txt
+    pip install -e .
+    python scripts/patch_tabpfn_torch_compat.py    # one-time compatibility patch
+    pytest tests/ -v
 
-Verify the install:
+Reproducing the main results needs a trained checkpoint (`scripts/train_control_prior_smoke.py`, `scripts/extend_training.py`):
 
-```bash
-pytest tests/ -v
-python scripts/smoke_test_phase0.py
-```
+    python scripts/run_baseline_suite_phase1.py
+    python scripts/run_rq1_decision_gate.py
+    python scripts/rq2_autocorrelation_dose_response.py
+    python scripts/rq3_mechanism_probes.py
+    python scripts/make_report_figures.py
 
-Reproduce the main results (requires a trained checkpoint — see `scripts/train_control_prior_smoke.py` / `scripts/extend_training.py`):
+## Code layout
 
-```bash
-python scripts/run_baseline_suite_phase1.py        # baselines only, no pretraining
-python scripts/run_rq1_decision_gate.py            # model vs. baselines, paired comparison
-python scripts/rq2_autocorrelation_dose_response.py
-python scripts/rq3_mechanism_probes.py
-python scripts/make_report_figures.py              # regenerates results/figures/*.png from saved results
-```
-
-## Layout
-
-- `src/synctrl/sims/` — known-expert simulated systems (pendulum, cartpole, Dubins car) with randomized physical parameters and a closed-form oracle accuracy ceiling under policy noise.
-- `src/synctrl/generators/` — reimplementations of the paper's MDP/Bandit/LDS synthetic control-prior generators, plus a generic tabular-prior baseline generator.
-- `src/synctrl/baselines/` — the five-baseline suite (majority, kNN, logistic regression, GBT, small MLP), fit fresh per task.
-- `src/synctrl/model.py`, `src/synctrl/pretrain.py` — the control-prior model and its pretraining loop.
-- `src/synctrl/eval/` — metrics (accuracy, NLL) and the evaluation harness with paired bootstrap confidence intervals.
-- `docs/report.md` — the full workshop-style writeup: method, results, ablations, limitations, "what this does not show."
-- `docs/MODEL_CARD.md` — model and dataset card.
-- `docs/00_critique_and_plan.md` — paper critique, related-work verification, engineering feasibility checks, phase plan, risk register, and a results summary (§7).
-- `docs/data-contract-tabpfn.md` — inspected I/O contract, required patches, and known upstream quirks for `tabpfn==0.1.11`.
-- `docs/reimplementation-assumptions.md` — every detail filled in beyond the source paper's written description, logged rather than silently assumed.
-- `results/` — saved JSON results and figures, versioned alongside the code that produced them.
-- `tests/` — unit and statistical-property tests (77 passing) for the simulators, generators, baselines, model, and evaluation harness.
+- `src/synctrl/sims/`: pendulum, cartpole and Dubins car with randomised physical parameters and a closed-form oracle accuracy ceiling.
+- `src/synctrl/generators/`: reimplementations of the paper's MDP, bandit and LDS generators, and a generic tabular prior.
+- `src/synctrl/baselines/`: the five baselines, fitted fresh for each task.
+- `src/synctrl/model.py`, `pretrain.py`: the model and its pretraining loop.
+- `src/synctrl/eval/`: accuracy and NLL metrics, with paired bootstrap confidence intervals.
+- `tests/`: 77 tests covering simulators, generators, baselines, model and evaluation.
